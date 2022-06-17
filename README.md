@@ -1,4 +1,4 @@
 # pwrshll
 
-Some system admin scripts that I wrote or forked.
+Some system admin scripts that might help you.
 
