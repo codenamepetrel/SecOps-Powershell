@@ -1,0 +1,159 @@
+#send suspicious file to virustotal using curl
+curl -v -F 'file=<PATH TO FILE>/<FILE NAME>' -F apikey=<VT API KEY>
+
+
+#find all AD accounts created within last 14 days
+function Get-RecentADCreatedAccounts{
+Import-Module activedirectory
+Get-ADUser -Filter * -Properties whenCreated | Where-Object {$_.whenCreated -ge ((Get-Date).AddDays(-14)).Date} >> c:\Recent_AD_Accounts.txt
+}
+
+#Check for list of available log, size and retention limit
+Get-EventLog -list
+
+#Get partial list of key security log austiting events to monitor
+Get-EventLog -newest 5 -logname application | Format-List
+
+#show event log from remote system
+$servername = ""
+Show-EventLog -ComputerName $servername
+
+#get a specific list of event based on event ID
+Get-EventLog Security | ? { $_.EventID -eq 4800 }
+Get-WinEvent -FilterHashtable @{LogName="Security"; ID=4774}
+
+#Account Logon - Audit Credential Validation Last 14 days
+Get-EventLog Security 4768,4771,4769,4770,4772,4649,4778,4779,4800,4801,4802,4803,5378,5632,5633 -After ((Get-Date).AddDays(-14))
+
+#Account logon/logoff
+Get-EventLog Security 4625,4634,4647,4624,4625,4648,4675,6272,6273,6274,6275,6276,6277,6278,6279,6280,4649,4778,4800,4801,4802,4803,5378,5632,5633,4964 -After ((Get-Date).AddDays(-1))
+
+#domain service access
+Get-EventLog Security 4662,5136,5137,5138,5139,5141 -After ((Get-Date).AddDays(-1))
+
+#Object access - Audit file share, file system, SAM, reg, certs
+Get-EventLog Security 4671,4691,4698,4699,4700,4701,4702,5148,5149,5888,5889,5890,4657,5039,4659,4660,4661,4663,4656,4658,4690,4874,4875,4880,4881,4882,4884,4885,4888,4890,4891,4892,4895,4896,4898,5145,5140,5142,5143,5144,5168,5140,5142,5143,5144,5168,5140,5142,5143,5144,5168,4664,4985,5152,5153,5031,5140,5150,5151,5154,5155,5156,5157,5158,5159 -After ((Get-Date).AddDays(-1))
+
+
+#enable DHCP server logging
+function Enable-DHCPLoggin{ 
+reg add HKLM\System\CurrentControlSet\Services\DhcpServer\Parameters /v ActivityLogFlag /t REG_DWORD /d 1
+}
+
+#Create loop to get all recend logged on user and send to txt file. You will need pstools added to ENV
+function Get-LoggedOnUsersLoop{
+Invoke-Command -ScriptBlock { & cmd /c for /L %i in (1,1,254) do psloggedon \\10.4.52.%i >> c:\users_output.txt}
+}
+
+#nbtstat loop scan and send to txt file
+function Invoke-NBTScan{
+Invoke-Command -ScriptBlock { & cmd /c for /L %I in (1,1,254) do nbtstat -An \\10.4.52.%i >> c:\users_output.txt}
+}
+
+function Get-HashFile{
+$file = ""
+Get-HashFile -algorithm md5 $file
+}
+function Set-remoteComputerUsernameAndPassword{
+$remoteComputer = ""
+$remoteUserName = ""
+$newPassword = ""
+Invoke-Command -Scriptblock { & cmd /c pspasswd.exe \\$remoteComputer -u $remoteUserName -p $newPassword}
+}
+
+#for cmd line
+reg add HKLM\Software\Policies\Microsoft\Windows\EventLog\Application /v MaxSize /t REG_DWORD /d 0x19000
+reg add HKLM\Software\Policies\Microsoft\Windows\EventLog\Security /v MaxSize /t REG_DWORD /d 0x64000
+reg add HKLM\Software\Policies\Microsoft\Windows\EventLog\System /v MaxSize /t REG_DWORD /d 0x19000
+
+#check settings of security log
+wevutil gl Security
+
+#check settings of audit policies
+auditpol /get /category:*
+
+#USER INFORMATION
+whoami
+net users
+net localgroup administrators
+net group administrators
+wmic rdtoggle list
+wmic useraccount list
+wmic group list
+wmic netlogin get name, lastlogon,badpasswordcount
+wmic netclient list brief
+doskey /history > history.txt
+
+#network info
+netstat -e
+netstat -noab
+netstat -nr
+netstat -vb
+netstat -s
+route print
+arp -a
+ipconfig /displaydns
+netsh winhttp show proxy
+ipconfig /allcompartments /all
+netsh wlan show interfaces
+netsh wlan show all
+reg query "HKLM\Software\Microsoft\Windows\CurrentVersion\InternetSettings\Connections\WinHTTPSettings"
+type %SYSTEMROOT%\system32\drivers\etc\hosts
+wmic nicconfig get descriptions,IPaddress,MACadress
+wmic netuse get name,username,connectiontype,localname
+
+#service information
+at
+tasklist
+tasklist /svc
+tasklist /svc /fi "imagename eq svchost.exe"
+tasklist /svc /fi "pid eq $PID"
+schtasks
+net start
+sc query
+wmic service list brief | findstr "Running"
+wmic service list config
+wmic process list brief
+wmic process list status
+wmix process list memory
+wmic job list brief
+#PS
+Get-Service | Where-Object { $_.Status -eq "Running" }
+
+#AUTORUN AND AUTOLOAD INFO
+wmic startup list full
+wmic ntdomain list brief
+
+#show all autoruns, export to csv, and check with virustotal
+autorunsc.exe -accepteula -a -c -i -e -f -l -m -v
+
+#HKEY CLASSES ROOT
+reg query HKCR\Comfile\Shell\Open\Command
+reg query HKCR\Batfile\Shell\Open\Command
+reg query HKCR\htafile\Shell\Open\Command
+reg query HKCR\exefile\Shell\Open\Command
+reg query HKCR\exefiles\Shell\Open\Command
+reg query HKCR\piffile\Shell\Open\Command
+
+#get list of logs remotely
+psloglist \\$remoteComputer -accepteula -h 12 -x
+
+#clear all logs and start a baseline log to monitor
+#Powershell
+wevtutil el | ForEach-Object {wevutil cl "$_"}
+
+#cmd list logs and path location
+wmic nteventlog get path,filename,writeable
+
+#cmd find multiple file types or a file
+dir /A /S /T:A *.exe *.dll *.bat *.ps1 *.zip
+dir /A /S /T:A $filename.exe
+
+#cmd find exe new than date
+forfiles /p c:\ /M *.exe /S /D +8/10/2018 /C "cmd /c echo @fdate @ftime @path"
+
+#find mulitple files types using loop
+for %G in (.exe, .dll, .bat, .ps) do forfiles -p "c:" -m *%G -a -d +8/10/2018 -c "cmd /c echo @fdate @ftime @path"
+
+#cmd list loaded unsigned dlls
+listdlls.exe -u
